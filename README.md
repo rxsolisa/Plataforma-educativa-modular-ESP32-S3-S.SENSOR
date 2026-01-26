@@ -24,4 +24,6 @@ Se conecta a la **placa base ESP32-S3-CORE* mediante **pin headers** y está dis
 - **Plataforma-educativa-modular-ESP32-S3-S.MOTOR**  
   Shield para control de motores y actuadores  
   👉 https://github.com/rxsolisa/Plataforma-educativa-modular-ESP32-S3-S.MOTOR
-
+  
+- **Pinout**  
+    👉 https://github.com/rxsolisa/Plataforma-educativa-modular-ESP32-S3-S.SENSOR/blob/main/Hardware/Pinout%20S3-S.SENSOR
