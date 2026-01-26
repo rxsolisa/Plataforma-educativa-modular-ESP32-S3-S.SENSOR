@@ -2,7 +2,7 @@
 
 ## Shield de sensores e interfaz tipo HMI para proyectos educativos
 
-La **S.SENSOR** es una *shield funcional* que forma parte de la **Plataforma Educativa Modular basada en ESP32-S3**, orientada a la implementación de **proyectos educativos**.
+La **S.SENSOR** es una *shield* que forma parte de la **Plataforma Educativa Modular basada en ESP32-S3**, orientada a la implementación de **proyectos educativos**.
 
 Esta shield imita las funciones básicas de un **HMI (Human Machine Interface)**, enfocándose en:
 
