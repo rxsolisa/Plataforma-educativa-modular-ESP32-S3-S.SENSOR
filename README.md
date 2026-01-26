@@ -11,7 +11,7 @@ Esta shield imita las funciones básicas de un **HMI (Human Machine Interface)**
 - Interfaz de usuario mediante menús y botones  
 - Alertas visuales y sonoras  
 
-Se conecta a la **placa base ESP32-S3** mediante **pin headers** y está diseñada para trabajar en conjunto con **otros shields**, permitiendo ampliar las capacidades del sistema de forma **modular y escalable**.
+Se conecta a la **placa base ESP32-S3-CORE* mediante **pin headers** y está diseñada para trabajar en conjunto con **otros shields**, permitiendo ampliar las capacidades del sistema de forma **modular y escalable**.
 
 ![Shield S.SENSOR](assets/Shield_sensor.png)
 
