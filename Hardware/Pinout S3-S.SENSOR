@@ -1,0 +1,40 @@
+📌 Pinout del Kit
+
+🔍 Sensores
+Descripción	Pin
+Sensor A	1
+Sensor B	2
+Sensor C	3
+Sensor D	9
+
+🔌 Bus I²C (pines compartidos)
+
+ℹ️ El bus I²C está disponible como pines libres en la PCB y se comparte con el RTC y la pantalla.
+
+Señal	Pin	Dispositivos
+SCL	7	RTC DS3231 · Pantalla SSD1306 · Expansión
+SDA	6	RTC DS3231 · Pantalla SSD1306 · Expansión
+
+📎 Notas sobre I²C
+
+Todos los dispositivos usan el mismo bus
+Cada módulo se diferencia por su dirección I²C
+
+Direcciones típicas:
+RTC DS3231 → 0x68
+SSD1306 → 0x3C o 0x3D
+
+🔊 Actuadores
+Dispositivo	Pin
+Buzzer pasivo	8
+LEDs WS2812B (x3)	10
+
+⚠️ Los LEDs WS2812B requieren una librería tipo Adafruit_NeoPixel o FastLED.
+
+🔘 Botones
+Descripción	Pin
+Botón menú superior	11
+Botón menú medio	12
+Botón menú inferior	13
+
+💡 Se recomienda configurar los botones como INPUT_PULLUP.
