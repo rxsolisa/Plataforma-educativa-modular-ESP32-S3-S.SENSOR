@@ -22,18 +22,71 @@ unsigned long nextNoteTime = 0;
 float playerX = 0.0, enemyX = 0.0, enemyZ = 0.0;
 int score = 0, health = 3, gunKick = 0;
 bool enemyAlive = true, showFlash = false;
+bool gameStarted = false;
 
 void setup() {
   leds.begin();
   leds.setBrightness(30);
-  Wire.begin(6, 7); // I2C para ESP32-S3
+  Wire.begin(6, 7); 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) for(;;);
   
   pinMode(BTN_IZQ, INPUT_PULLUP); 
   pinMode(BTN_DIS, INPUT_PULLUP); 
   pinMode(BTN_DER, INPUT_PULLUP);
   
+  showIntroScreen(); // Lanzar pantalla de inicio
   respawnEnemy();
+}
+
+void showIntroScreen() {
+  bool blink = false;
+  unsigned long lastBlink = 0;
+  
+  // Tono de inicio
+  tone(PIN_BUZ, 150, 200);
+  delay(200);
+  tone(PIN_BUZ, 100, 400);
+
+  while (digitalRead(BTN_DIS) == HIGH) {
+    display.clearDisplay();
+    
+    // Texto DOOM
+    display.setTextSize(3);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(25, 10);
+    display.print("DOOM");
+    
+    // Línea decorativa
+    display.drawFastHLine(20, 35, 88, SSD1306_WHITE);
+
+    // Texto parpadeante
+    if (millis() - lastBlink > 500) {
+      blink = !blink;
+      lastBlink = millis();
+    }
+    
+    if (blink) {
+      display.setTextSize(1);
+      display.setCursor(30, 45);
+      display.print("PRESS FIRE");
+    }
+
+    // LEDs en rojo amenazante
+    leds.fill(leds.Color(50, 0, 0));
+    leds.show();
+
+    display.display();
+    delay(10);
+  }
+  
+  // Efecto de inicio
+  tone(PIN_BUZ, 400, 100);
+  leds.fill(leds.Color(0, 255, 0));
+  leds.show();
+  display.invertDisplay(true);
+  delay(100);
+  display.invertDisplay(false);
+  gameStarted = true;
 }
 
 void respawnEnemy() {
@@ -53,7 +106,6 @@ void playGameOverSound() {
 void showGameOver() {
   noTone(PIN_BUZ);
   display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
   display.setTextSize(2);
   display.setCursor(10, 5); display.print("GAME OVER");
   display.setTextSize(1);
@@ -74,7 +126,6 @@ void showGameOver() {
   
   health = 3; score = 0; noteIdx = 0; playerX = 0;
   respawnEnemy();
-  display.invertDisplay(false);
 }
 
 void drawEnemy(int x, int y, int size) {
@@ -102,7 +153,7 @@ void loop() {
   if (health <= 0) { showGameOver(); return; }
   display.clearDisplay();
 
-  // --- MÚSICA ---
+  // Música dinámica
   float speedFactor = 1.0 + (score / 100.0) * 0.1; 
   if (speedFactor > 1.8) speedFactor = 1.8;
 
@@ -115,75 +166,55 @@ void loop() {
     noteIdx = (noteIdx + 1) % 16;
   }
 
-  // --- DIBUJAR MARCADOR (HUD) ---
+  // HUD
   display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
   display.setCursor(2, 2);
-  display.print("SCORE: ");
-  if(score < 100) display.print("0");
-  if(score < 10) display.print("0");
-  display.print(score);
+  display.print("SCORE: "); display.print(score);
 
-  // --- ESCENARIO ---
+  // Escenario
   int hX = 64 - (playerX / 2);
   display.drawRect(hX - 20, 22, 40, 20, SSD1306_WHITE);
-  display.drawLine(0, 10, hX - 20, 22, SSD1306_WHITE); // Ajustado para no pisar el score
-  display.drawLine(127, 10, hX + 20, 22, SSD1306_WHITE);
+  display.drawLine(0, 12, hX - 20, 22, SSD1306_WHITE);
+  display.drawLine(127, 12, hX + 20, 22, SSD1306_WHITE);
   display.drawLine(0, 63, hX - 20, 42, SSD1306_WHITE);
   display.drawLine(127, 63, hX + 20, 42, SSD1306_WHITE);
 
-  // --- ENEMIGO ---
+  // Enemigo
   if (enemyAlive) {
     enemyZ += (0.35 + (score / 1000.0));
     int size = 1 + (enemyZ / 3);
     int xE = (64 - playerX) + enemyX;
     drawEnemy(xE, 32, size);
-    if (enemyZ > 35) {
-      health--;
-      tone(PIN_BUZ, 40, 200);
-      respawnEnemy();
-    }
+    if (enemyZ > 35) { health--; tone(PIN_BUZ, 40, 200); respawnEnemy(); }
   }
 
-  // --- CONTROLES ---
+  // Controles
   if (digitalRead(BTN_IZQ) == LOW) playerX -= 2.2;
   if (digitalRead(BTN_DER) == LOW) playerX += 2.2;
   playerX = constrain(playerX, -45, 45);
 
-  // --- DISPARO Y EFECTO DE MUERTE ---
+  // Disparo
   if (gunKick > 0) gunKick -= 2;
   if (gunKick < 4) showFlash = false;
-
   if (digitalRead(BTN_DIS) == LOW && gunKick == 0) {
     tone(PIN_BUZ, 500, 40);
-    gunKick = 10;
-    showFlash = true;
+    gunKick = 10; showFlash = true;
     int hitPos = (64 - playerX) + enemyX;
     if (enemyAlive && abs(hitPos - 64) < 14) {
-      score += 10;
-      enemyAlive = false;
-      // Sonido explosión
+      score += 10; enemyAlive = false;
       for(int f = 300; f > 100; f -= 40) { tone(PIN_BUZ, f, 20); delay(10); }
-      // Partículas
       display.invertDisplay(true);
-      for(int i = 0; i < 15; i++) {
-        display.drawPixel((64-playerX)+enemyX+random(-10,10), 32+random(-10,10), SSD1306_WHITE);
-      }
-      display.display();
-      delay(30); 
-      display.invertDisplay(false);
+      for(int i = 0; i < 15; i++) display.drawPixel((64-playerX)+enemyX+random(-10,10), 32+random(-10,10), SSD1306_WHITE);
+      display.display(); delay(30); display.invertDisplay(false);
       respawnEnemy();
     }
   }
 
   drawGun(gunKick, showFlash);
   display.drawPixel(64, 32, SSD1306_WHITE);
-  
-  // LEDs de Vida
   leds.clear();
   for(int i=0; i<health; i++) leds.setPixelColor(i, leds.Color(0, 20, 0));
   leds.show();
-
   display.display();
   delay(12);
 }
