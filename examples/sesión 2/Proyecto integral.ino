@@ -2,249 +2,195 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <RTClib.h>
-#include <Adafruit_AHTX0.h>
-#include <SparkFun_ENS160.h>
 #include <Adafruit_NeoPixel.h>
+#include <Adafruit_AHTX0.h>
+#include <DFRobot_ENS160.h>
 
-/* ===== PINES ===== */
-#define SDA_PIN 6
-#define SCL_PIN 7
+// --- DEFINICIÓN DE PINES (ESP32-S3) ---
+#define PIN_UV       1
+#define PIN_SDA      6
+#define PIN_SCL      7
+#define PIN_BUZZER   8
+#define PIN_LED      10
+#define BTN_UP       11
+#define BTN_MID      12
+#define BTN_DOWN     13
 
-#define BUZZER_PIN 8
-#define LED_PIN 10
+// --- CONFIGURACIÓN DE DISPOSITIVOS ---
+#define NUM_LEDS 3
+Adafruit_NeoPixel leds(NUM_LEDS, PIN_LED, NEO_GRB + NEO_KHZ800);
 
-#define BTN_UP    11
-#define BTN_OK    12
-#define BTN_DOWN  13
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-/* ===== UMBRALES ===== */
-#define CO2_NORMAL   600
-#define CO2_ALERTA   800
-#define CO2_PELIGRO  900
-
-/* ===== OBJETOS ===== */
-Adafruit_SSD1306 display(128, 64, &Wire);
 RTC_DS3231 rtc;
 Adafruit_AHTX0 aht;
-SparkFun_ENS160 ens160;
-Adafruit_NeoPixel leds(3, LED_PIN, NEO_GRB + NEO_KHZ800);
+DFRobot_ENS160_I2C ens160(&Wire, 0x53); // La dirección I2C puede ser 0x52 o 0x53
 
-/* ===== VARIABLES ===== */
-int menuIndex = 0;
-int pantalla = 0;
+// --- VARIABLES GLOBALES ---
+int menuActual = 1; 
+unsigned long tiempoAnterior = 0;
+const long intervaloLectura = 500; // Actualiza sensores cada 500ms
 
-unsigned long alarmaTimer = 0;
-bool alarmaEstado = false;
+// Variables de estado para los botones (Antirrebote simple)
+bool estadoAnteriorUp = HIGH;
+bool estadoAnteriorMid = HIGH;
+bool estadoAnteriorDown = HIGH;
 
-unsigned long btnDownTime = 0;
-bool btnDownHeld = false;
+// Variables de almacenamiento de sensores
+float temp = 0.0, hum = 0.0, uvVoltaje = 0.0;
+uint16_t eco2 = 0, tvoc = 0;
+float indiceUV = 0;
 
-/* ===== SONIDOS ===== */
-void beep(int f, int t) {
-  tone(BUZZER_PIN, f, t);
-}
-
-void beepMenu() { beep(2000, 60); }
-void beepEnter() { beep(2500, 80); delay(80); beep(3000, 80); }
-void beepBack() { beep(800, 150); }
-
-/* ===== SETUP ===== */
 void setup() {
-
-  pinMode(BTN_UP, INPUT_PULLUP);
-  pinMode(BTN_OK, INPUT_PULLUP);
-  pinMode(BTN_DOWN, INPUT_PULLUP);
-  pinMode(BUZZER_PIN, OUTPUT);
-
   Serial.begin(115200);
 
-  Wire.begin(SDA_PIN, SCL_PIN);
+  // 1. Inicializar I2C en los pines específicos del ESP32-S3
+  Wire.begin(PIN_SDA, PIN_SCL);
 
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // 2. Configurar Entradas/Salidas
+  pinMode(BTN_UP, INPUT_PULLUP);
+  pinMode(BTN_MID, INPUT_PULLUP);
+  pinMode(BTN_DOWN, INPUT_PULLUP);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(PIN_UV, INPUT);
+
+  // 3. Inicializar Pantalla
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("Fallo SSD1306");
+    for(;;);
+  }
   display.clearDisplay();
-  display.display();
-
-  rtc.begin();
-  aht.begin();
-
-  ens160.begin();
-  ens160.setOperatingMode(SFE_ENS160_STANDARD);
-
-  leds.begin();
-  leds.clear();
-  leds.show();
-
-  beepEnter();
-}
-
-/* ===== LOOP ===== */
-void loop() {
-  leerBotones();
-
-  if (pantalla == 0) pantallaMenu();
-  if (pantalla == 1) pantallaSensores();
-  if (pantalla == 2) pantallaReloj();
-  if (pantalla == 3) pantallaInfo();
-
-  delay(100);
-}
-
-/* ===== BOTONES ===== */
-void leerBotones() {
-
-  if (!digitalRead(BTN_UP) && pantalla == 0) {
-    menuIndex--;
-    if (menuIndex < 0) menuIndex = 2;
-    beepMenu();
-    delay(200);
-  }
-
-  if (!digitalRead(BTN_DOWN)) {
-
-    if (btnDownTime == 0)
-      btnDownTime = millis();
-
-    if (millis() - btnDownTime > 1000 && pantalla != 0) {
-      pantalla = 0;
-      beepBack();
-      btnDownHeld = true;
-    }
-
-    if (pantalla == 0 && !btnDownHeld) {
-      menuIndex++;
-      if (menuIndex > 2) menuIndex = 0;
-      beepMenu();
-      delay(200);
-    }
-
-  } else {
-    btnDownTime = 0;
-    btnDownHeld = false;
-  }
-
-  if (!digitalRead(BTN_OK) && pantalla == 0) {
-    pantalla = menuIndex + 1;
-    beepEnter();
-    delay(300);
-  }
-}
-
-/* ===== MENU ===== */
-void pantallaMenu() {
-  display.clearDisplay();
-  display.setTextSize(1);
   display.setTextColor(WHITE);
 
-  display.setCursor(0, 0);
-  display.println("MENU PRINCIPAL");
+  // 4. Inicializar LEDs
+  leds.begin();
+  leds.show(); // Apaga todo al inicio
 
-  display.setCursor(0, 16);
-  display.println(menuIndex == 0 ? "> Sensores" : "  Sensores");
-  display.println(menuIndex == 1 ? "> Reloj"    : "  Reloj");
-  display.println(menuIndex == 2 ? "> Info"     : "  Info");
+  // 5. Inicializar Sensores (con manejo de errores básico para depuración)
+  rtc.begin();
+  aht.begin();
+  ens160.begin();
+  ens160.setPWRMode(ENS160_STANDARD_MODE);
+  
+  // Si el RTC perdió energía, fijar la hora de compilación
+  if (rtc.lostPower()) {
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+
+  // Pantalla de bienvenida
+  display.setCursor(10, 20);
+  display.setTextSize(2);
+  display.print("EcoWatch");
+  display.display();
+  delay(2000);
+}
+
+void loop() {
+  manejarBotones();
+
+  // Uso de millis() para no bloquear la lectura de los botones
+  unsigned long tiempoActual = millis();
+  if (tiempoActual - tiempoAnterior >= intervaloLectura) {
+    tiempoAnterior = tiempoActual;
+    
+    leerSensores();
+    actualizarPantalla();
+    evaluarAlertas();
+  }
+}
+
+// --- FUNCIONES SECUNDARIAS ---
+
+void manejarBotones() {
+  bool estadoUp = digitalRead(BTN_UP);
+  bool estadoMid = digitalRead(BTN_MID);
+  bool estadoDown = digitalRead(BTN_DOWN);
+
+  // Detección de flanco de bajada (al presionar)
+  if (estadoUp == LOW && estadoAnteriorUp == HIGH) menuActual = 1;
+  if (estadoMid == LOW && estadoAnteriorMid == HIGH) menuActual = 2;
+  if (estadoDown == LOW && estadoAnteriorDown == HIGH) menuActual = 3;
+
+  estadoAnteriorUp = estadoUp;
+  estadoAnteriorMid = estadoMid;
+  estadoAnteriorDown = estadoDown;
+}
+
+void leerSensores() {
+  // Lectura AHT21
+  sensors_event_t humedad, temperatura;
+  aht.getEvent(&humedad, &temperatura);
+  temp = temperatura.temperature;
+  hum = humedad.relative_humidity;
+
+  // Compensación del ENS160 usando datos del AHT21 (Mejora la precisión)
+  ens160.setTempAndHum(temp, hum);
+  
+  // Lectura ENS160
+  eco2 = ens160.getECO2();
+  tvoc = ens160.getTVOC();
+
+  // Lectura UV Analógica (El ADC del ESP32-S3 es de 12 bits: 0-4095)
+  int lecturaRaw = analogRead(PIN_UV);
+  uvVoltaje = (lecturaRaw * 3.3) / 4095.0;
+  // Conversión aproximada genérica (1V ~ 10 Indice UV)
+  indiceUV = uvVoltaje * 10.0; 
+}
+
+void actualizarPantalla() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+
+  if (menuActual == 1) {
+    display.println("--- CALIDAD AIRE ---");
+    display.print("CO2 (ppm): ");
+    display.println(eco2);
+    display.print("TVOC (ppb): ");
+    display.println(tvoc);
+  } 
+  else if (menuActual == 2) {
+    DateTime now = rtc.now();
+    display.println("--- CLIMA & HORA ---");
+    display.print("Temp: "); display.print(temp); display.println(" C");
+    display.print("Hum:  "); display.print(hum); display.println(" %");
+    display.print("Hora: ");
+    display.print(now.hour(), DEC); display.print(':');
+    display.print(now.minute(), DEC);
+  } 
+  else if (menuActual == 3) {
+    display.println("--- RADIACION UV ---");
+    display.print("Voltaje: "); display.print(uvVoltaje); display.println(" V");
+    display.print("Indice Aprox: "); display.println(indiceUV);
+  }
 
   display.display();
 }
 
-/* ===== SENSORES ===== */
-void pantallaSensores() {
-
-  sensors_event_t hum, temp;
-  aht.getEvent(&hum, &temp);
-
-  if (!ens160.checkDataStatus()) return;
-
-  int eco2 = ens160.getECO2();
-
-  /* === LOGICA DE ALARMA === */
-  if (eco2 < CO2_NORMAL) {
-    leds.fill(leds.Color(0, 150, 0));
-    leds.show();
-    noTone(BUZZER_PIN);
-  }
-
-  else if (eco2 < CO2_ALERTA) {
-    leds.fill(leds.Color(150, 150, 0));
-    leds.show();
-    noTone(BUZZER_PIN);
-  }
-
-  else if (eco2 < CO2_PELIGRO) {
-    leds.fill(leds.Color(150, 80, 0));
-    leds.show();
-    beep(1200, 80);
-  }
-
+void evaluarAlertas() {
+  // Lógica de semáforo y alarmas
+  if (eco2 > 1500 || indiceUV > 7.0) {
+    // PELIGRO (Rojo)
+    fijarColorLED(255, 0, 0);
+    tone(PIN_BUZZER, 1000); // Pitido agudo
+  } 
+  else if (eco2 > 800 || indiceUV > 4.0) {
+    // ADVERTENCIA (Amarillo)
+    fijarColorLED(255, 255, 0);
+    noTone(PIN_BUZZER);
+  } 
   else {
-    if (millis() - alarmaTimer > 300) {
-      alarmaTimer = millis();
-      alarmaEstado = !alarmaEstado;
-
-      if (alarmaEstado) {
-        leds.fill(leds.Color(255, 0, 0));
-        tone(BUZZER_PIN, 1800);
-      } else {
-        leds.clear();
-        noTone(BUZZER_PIN);
-      }
-      leds.show();
-    }
+    // NORMAL (Verde)
+    fijarColorLED(0, 255, 0);
+    noTone(PIN_BUZZER);
   }
-
-  /* === OLED === */
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("SENSORES");
-
-  display.print("Temp: ");
-  display.print(temp.temperature, 1);
-  display.println(" C");
-
-  display.print("Hum: ");
-  display.print(hum.relative_humidity, 1);
-  display.println(" %");
-
-  display.print("CO2: ");
-  display.print(eco2);
-  display.println(" ppm");
-
-  display.println("\nDOWN 1s: Volver");
-  display.display();
-
-  /* === LOG SERIAL === */
-  DateTime now = rtc.now();
-  Serial.printf("%02d/%02d/%04d %02d:%02d:%02d | CO2=%d ppm\n",
-                now.day(), now.month(), now.year(),
-                now.hour(), now.minute(), now.second(),
-                eco2);
 }
 
-/* ===== RELOJ ===== */
-void pantallaReloj() {
-  DateTime now = rtc.now();
-
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("RELOJ RTC");
-
-  display.printf("%02d/%02d/%04d\n",
-                 now.day(), now.month(), now.year());
-
-  display.printf("%02d:%02d:%02d\n",
-                 now.hour(), now.minute(), now.second());
-
-  display.println("\nDOWN 1s: Volver");
-  display.display();
-}
-
-/* ===== INFO ===== */
-void pantallaInfo() {
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("S.SENSOR HMI");
-  display.println("ESP32-S3");
-  display.println("ENS160 + AHT21");
-  display.println("OLED + RTC");
-  display.println("\nDOWN 1s: Volver");
-  display.display();
+void fijarColorLED(uint8_t r, uint8_t g, uint8_t b) {
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds.setPixelColor(i, leds.Color(r, g, b));
+  }
+  leds.show();
 }
